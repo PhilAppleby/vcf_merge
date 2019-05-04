@@ -154,6 +154,7 @@ func Mergeslices_full(vcfset [][]string, vcfdataset []Vcfdata, rsid string,
 		}
 		//fmt.Printf("%s: %s\n", combo_names[i], geno_list)
 		(*gmetrics).AllGenoCount += len(geno_list)
+		(*gmetrics).UniqueGenoCount += 1
 		if len(geno_list) > 1 {
 			(*gmetrics).OverlapTestCount++
 			if len(geno_list) == 2 {
@@ -225,6 +226,9 @@ func get_best_geno(geno_list []string, probidx int, varid string, gmetrics *geno
 			if rgeno != "" {
 				(*gmetrics).MismatchCount += 1
 			}
+			if genodata[0] == "./." {
+				(*gmetrics).MissTestCount += 1
+			}
 			prob, _, _ := variant.MaxProb(geno, probidx)
 			if prob > best_prob {
 				rgeno = genodata[0]
@@ -232,6 +236,10 @@ func get_best_geno(geno_list []string, probidx int, varid string, gmetrics *geno
 				best_prob = prob
 			}
 		}
+	}
+	bgenodata := strings.Split(bgeno, ":")
+	if (bgeno == ".") || (bgenodata[0] == "./.") {
+		(*gmetrics).MissingCount += 1
 	}
 	return bgeno
 }

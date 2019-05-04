@@ -115,6 +115,31 @@ func GetProbidx(recslice []string) int {
 	return getStrIdx(recslice[fmtIdx], "GP")
 }
 
+func GetRefPanelAf(recslice []string) float64 {
+	infomap := parseInfoStr(GetInfo(recslice))
+	if maf, ok := infomap["RefPanelAF"]; ok {
+		refpaf, _ := strconv.ParseFloat(maf, 64)
+		return refpaf
+	}
+	return 0.0
+}
+
+func GetInfo(recslice []string) string {
+	return recslice[infoIdx]
+}
+
+func parseInfoStr(info_str string) map[string]string {
+	infomap := make(map[string]string)
+	infodata := strings.Split(info_str, ";")
+	for _, elem := range infodata {
+		kv := strings.Split(elem, "=")
+		if len(kv) == 2 {
+			infomap[kv[0]] = kv[1]
+		}
+	}
+	return infomap
+}
+
 func getStrIdx(str string, match_str string) int {
 	str_arr := strings.Split(str, ":")
 	for i, mstr := range str_arr {

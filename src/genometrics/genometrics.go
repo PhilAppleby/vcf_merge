@@ -9,10 +9,13 @@ import (
 
 type AllMetrics struct {
 	AllGenoCount      int
+	UniqueGenoCount   int
 	OverlapTestCount  int
 	TwoOverlapCount   int
 	GtTwoOverlapCount int
 	MismatchCount     int
+	MissTestCount     int
+	MissingCount      int
 }
 
 type RunParameters struct {
@@ -25,15 +28,15 @@ type RunParameters struct {
 // caller passes a string array representing a whole VCF
 // record, including prefix
 func Hwe_exact_for_record(rec []string, threshold float64) float64 {
-	homref, homalt, het, _, _, _ := get_genotype_counts(rec, threshold)
+	homref, homalt, het, _, _, _, _ := get_genotype_counts(rec, threshold)
 	return SNPHWE(het, homref, homalt)
 }
 
 // return all SNP metrics
 // CR, RAF, AAF, MAF, HWE_P
 func Metrics_for_record(rec []string, threshold float64) (float64, float64,
-	float64, float64, float64, int, int, int, int, int, int) {
-	homref, homalt, het, n, miss, dot := get_genotype_counts(rec, threshold)
+	float64, float64, float64, int, int, int, int, int, int, float64) {
+	homref, homalt, het, n, miss, dot, refPAF := get_genotype_counts(rec, threshold)
 	cr := float64(homref+het+homalt) / float64(n)
 	raf := float64(2*homref+het) / float64(2*n)
 	aaf := float64(2*homalt+het) / float64(2*n)
@@ -47,7 +50,7 @@ func Metrics_for_record(rec []string, threshold float64) (float64, float64,
 		obs_homc = homalt
 		obs_homr = homref
 	}
-	return cr, raf, aaf, maf, SNPHWE(het, homref, homalt), het, obs_homc, obs_homr, n, miss, dot
+	return cr, raf, aaf, maf, SNPHWE(het, homref, homalt), het, obs_homc, obs_homr, n, miss, dot, refPAF
 }
 
 func GetRunParams(testnum string, mafdelta string, callrate string, infoscore string) RunParameters {
@@ -149,7 +152,7 @@ func SNPHWE(obs_hets int, obs_hom1 int, obs_hom2 int) float64 {
 
 }
 
-func get_genotype_counts(rec []string, threshold float64) (int, int, int, int, int, int) {
+func get_genotype_counts(rec []string, threshold float64) (int, int, int, int, int, int, float64) {
 	homr := 0
 	homa := 0
 	het := 0
@@ -159,6 +162,7 @@ func get_genotype_counts(rec []string, threshold float64) (int, int, int, int, i
 
 	prfx, sfx := variant.GetVCFPrfx_Sfx(rec)
 	probidx := variant.GetProbidx(prfx)
+	refPAF := variant.GetRefPanelAf(prfx)
 
 	for _, geno := range sfx {
 		if geno != "." {
@@ -185,5 +189,5 @@ func get_genotype_counts(rec []string, threshold float64) (int, int, int, int, i
 		}
 	}
 
-	return homr, homa, het, n, miss, dot
+	return homr, homa, het, n, miss, dot, refPAF
 }

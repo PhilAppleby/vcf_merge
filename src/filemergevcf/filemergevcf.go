@@ -2,11 +2,19 @@ package main
 
 //
 // Merge 2 to n VCF files covering the same genomic range
+//-------------------------------------------------------
+// The are three major aspects:
+// 1) Handling file merge as an extension of a two-way merge - this can be regarded
+// as an implemetation of 'direct k-way' merge operating on files
+//
+// 2) For minimum-key records sets record combination takes place, if set-size > 1
 //
 // args:
-// tpltfile
-// filedir
-// chr
+//  --tpltfile: a text file of template file paths for files to be merged
+//  --paramfile: file of parameters for genotype resolution
+//  --chr: chromosome
+//  --logfile: full filepath for logging
+//  --vcfprfx: directory root for vcf files
 //
 import (
 	"bufio"
@@ -18,6 +26,7 @@ import (
 	"log"
 	"os"
 	"sample"
+	"sort"
 	"strings"
 	"variant"
 	"vcfmerge"
@@ -35,6 +44,7 @@ var paramFilePath string
 var logFilePath string
 var vcfPathPref string
 var chr string
+var threshold float64
 
 //-----------------------------------------------
 // main package routines
@@ -47,8 +57,10 @@ func init() {
 		pusage               = "QC Parameter file"
 		defaultLogFilePath   = "./data/filemergevcf_output.log"
 		lusage               = "Log file"
-		defaultvcfPathPref   = "/homes/pappleby/data"
+		defaultvcfPathPref   = "/var/data"
 		vusage               = "default path prefix for vcf files"
+		defaultThreshold     = 0.9
+		thrusage             = "Prob threshold"
 		defaultChr           = "22"
 		chrusage             = "default chromosome (number as string)"
 	)
@@ -60,6 +72,8 @@ func init() {
 	flag.StringVar(&logFilePath, "l", defaultLogFilePath, lusage+" (shorthand)")
 	flag.StringVar(&vcfPathPref, "vcfprfx", defaultvcfPathPref, vusage)
 	flag.StringVar(&vcfPathPref, "v", defaultvcfPathPref, vusage+" (shorthand)")
+	flag.Float64Var(&threshold, "threshold", defaultThreshold, thrusage)
+	flag.Float64Var(&threshold, "h", defaultThreshold, thrusage+" (shorthand)")
 	flag.StringVar(&chr, "chr", defaultChr, chrusage)
 	flag.StringVar(&chr, "c", defaultChr, chrusage+" (shorthand)")
 	flag.Parse()
@@ -149,9 +163,11 @@ func main() {
 	}
 	// Headers and combined header map
 	sample_name_map, sample_posn_map := sample.MakeSamplesByAssaytype(headers)
-	combocols := sample.GetCombinedSampleMapByAssaytypes(sample_name_map, assaytype_list)
+	combocols := sample.GetCombinedSampleMap(sample_name_map)
+	// combocols := sample.GetCombinedSampleMapByAssaytypes(sample_name_map, assaytype_list)
 	colhdr_str, combo_names := vcfmerge.GetCombinedColumnHeaders(combocols)
 	//fmt.Printf("%s\n", "combined"+"\t"+colhdr_str)
+	print_headers()
 	fmt.Printf("%s\n", colhdr_str)
 
 	// read first records and capture keys (genomic positions)
@@ -166,11 +182,11 @@ func main() {
 	// process until all files exhausted
 	for records_remain(keys) {
 		records, keys, varids = check_low_key_records(records, keys, varids)
-		output_from_low_key_records(records, keys, sample_posn_map, combocols, combo_names, 0.9, &genomet)
+		output_from_low_key_records(records, keys, sample_posn_map, combocols, combo_names, threshold, &genomet)
 		outctr += 1
 		records, keys, varids = read_from_low_key_records(records, keys, freaders, varids)
 	}
-	log.Printf("EXIT,wrt=%d,allgeno=%d,2ol=%d,gt2ol=%d,mmc=%d\n", outctr, genomet.AllGenoCount, genomet.TwoOverlapCount, genomet.GtTwoOverlapCount, genomet.MismatchCount)
+	log.Printf("EXIT,wrt=%d,allgeno=%d,2ol=%d,gt2ol=%d,mmc=%d,misstested=%d,missing=%d\n", outctr, genomet.AllGenoCount, genomet.TwoOverlapCount, genomet.GtTwoOverlapCount, genomet.MismatchCount, genomet.MissTestCount, genomet.MissingCount)
 }
 
 //-------------------------------------------------------------
@@ -246,9 +262,16 @@ func output_from_low_key_records(records map[string][]string, keys map[string]in
 	combocols map[string]int, combo_names []string, threshold float64, genomet *genometrics.AllMetrics) {
 	//
 	low_keys := get_low_keys(keys)
+	low_key_at := make([]string, 0)
+
+	for at, _ := range low_keys {
+		low_key_at = append(low_key_at, at)
+	}
+	sort.Strings(low_key_at)
+
 	vcfrecords := make([][]string, 0, len(records))
 	rsid := ""
-	for at, _ := range low_keys {
+	for _, at := range low_key_at {
 		rsid = variant.GetVarid(records[at])
 		rec := make([]string, 1, len(records[at])+1)
 		rec[0] = at
@@ -259,7 +282,6 @@ func output_from_low_key_records(records map[string][]string, keys map[string]in
 	var vcfd []vcfmerge.Vcfdata
 	comborec := vcfmerge.Mergeslices_full(vcfrecords, vcfd, rsid, sample_posn_map, combocols, combo_names, threshold, genomet)
 	rec_str := strings.Join(comborec, "\t")
-	//fmt.Printf("%s\n", "combined"+"\t"+rec_str)
 	fmt.Printf("%s\n", rec_str)
 }
 
@@ -267,7 +289,6 @@ func read_from_low_key_records(records map[string][]string, keys map[string]int6
 	low_keys := get_low_keys(keys)
 	for assaytype, _ := range low_keys {
 		records[assaytype], keys[assaytype], varids[assaytype] = get_next_record_slice(rdrs[assaytype])
-		//fmt.Printf("LOWKEY READ %s, %d\n", assaytype, keys[assaytype])
 	}
 	return records, keys, varids
 }
@@ -288,4 +309,16 @@ func get_low_keys(keys map[string]int64) map[string]int64 {
 		}
 	}
 	return low_keys
+}
+
+func print_headers() {
+	fmt.Printf("%s\n", "##fileformat=VCFv4.2")
+	fmt.Printf("%s\n", "##INFO=<ID=AC,Number=A,Type=Integer,Description=\"Allele count in genotypes\">")
+	fmt.Printf("%s\n", "##INFO=<ID=AN,Number=1,Type=Integer,Description=\"Total number of alleles in called genotypes\">")
+	fmt.Printf("%s\n", "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">")
+	fmt.Printf("%s\n", "##INFO=<ID=RefPanelAF,Number=A,Type=Float,Description=\"Allele frequency in imputation reference panel\">")
+	fmt.Printf("%s\n", "##FORMAT=<ID=DS,Number=1,Type=Float,Description=\"Genotype dosage\">")
+	fmt.Printf("%s\n", "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Genotype posterior probabilities\">")
+	fmt.Printf("%s\n", "##FORMAT=<ID=AT,Number=1,Type=String,Description=\"Assay Type\">")
+	fmt.Printf("%s\n", "##INFO=<ID=TYPED,Number=0,Type=Flag,Description=\"Typed in input data\">")
 }

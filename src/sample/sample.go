@@ -43,6 +43,7 @@ func GetCombinedSampleMap(samplesByAssayType map[string]map[string]int) map[stri
 			i++
 		}
 	}
+	//fmt.Printf("(1) %v\n", sample_index)
 	return sample_index
 }
 
@@ -64,6 +65,7 @@ func GetCombinedSampleMapByAssaytypes(samplesByAssayType map[string]map[string]i
 			fmt.Printf("Horrible error %s (assaytype) not found in samples\n", atype)
 		}
 	}
+	//fmt.Printf("(2) %v\n", sample_index)
 
 	return sample_index
 }
